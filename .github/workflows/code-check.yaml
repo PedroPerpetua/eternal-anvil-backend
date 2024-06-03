@@ -1,0 +1,30 @@
+name: code-check
+
+on:
+  push: ~
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  repository-projects: write
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout the repository
+      uses: actions/checkout@v3.3.0
+
+    - name: Copy the test config file
+      run: cp .github/workflows/code-check.env docker/dev/config.env
+
+    - name: Run the Test container
+      run: docker compose -f docker/dev/compose.yml run test
+
+    - name: Commit the changes
+      uses: stefanzweifel/git-auto-commit-action@v4.16.0
+      with:
+        commit_message: Linting
+        status_options: '--untracked-files=no' # Should not create new files
