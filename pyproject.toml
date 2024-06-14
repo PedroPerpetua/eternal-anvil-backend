@@ -21,6 +21,7 @@ known_first_party = [
     "core",
     "users",
     # ADD OTHERS HERE
+    "realm_manager",
 ]
 sections = [
     "FUTURE",
