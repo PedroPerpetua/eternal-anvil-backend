@@ -117,11 +117,28 @@ class TestPlayer(TestCase):
     def test_unique_user_per_game_world(self) -> None:
         """Test that a User can only be a player once per GameWorld."""
         user = sample_user()
+        game_world = sample_game_world()
         # This will create a player for the user
-        account = sample_account(owner=user)
+        sample_account(owner=user, game_world=game_world)
         with self.assertRaises(ValidationError) as ctx:
-            sample_player(account=account, user=user)
+            sample_account(owner=user, game_world=game_world)
         self.assertEqual("multi_account", ctx.exception.error_dict["user"][0].code)
+
+    def test_unique_user_different_game_world(self) -> None:
+        """Test that the user can create players in different game worlds."""
+        user = sample_user()
+        game_world_1 = sample_game_world()
+        sample_account(owner=user, game_world=game_world_1)
+        # This shouldn't raise an exception
+        try:
+            game_world_2 = sample_game_world()
+            sample_account(owner=user, game_world=game_world_2)
+            self.assertTrue(True)
+        except ValidationError as ve:
+            error = ve.error_dict.get("user")
+            if error is not None and len(error) == 1 and error[0].code == "multi_account":
+                self.fail("Validation error for multi_account raised.")
+            raise
 
 
 class TestSchedule(TestCase):

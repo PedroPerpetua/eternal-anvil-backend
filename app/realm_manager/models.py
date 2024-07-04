@@ -64,6 +64,9 @@ class Account(AbstractBaseModel):
     # Related managers
     players: RelatedManager["Player"]
 
+    def join_account(self, user: User) -> None:
+        Player.objects.create(user=user, account=self)
+
     def validate_realm_matches(self) -> None:
         """
         Ensure that the Account's GameWorld matches it's realm's GameWorld
@@ -125,7 +128,7 @@ class Player(AbstractBaseModel):
 
         Since Django's unique constraint can't navigate trough multiple models, we validate it on a method.
         """
-        if GameWorld.objects.filter(accounts__players__user=self.user):
+        if self.account.game_world.accounts.filter(players__user=self.user).exists():
             raise ValidationError(
                 {"user": ValidationError("User is already present in this game world.", code="multi_account")}
             )
