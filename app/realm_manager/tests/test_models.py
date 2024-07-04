@@ -134,7 +134,7 @@ class TestPlayer(TestCase):
             game_world_2 = sample_game_world()
             sample_account(owner=user, game_world=game_world_2)
             self.assertTrue(True)
-        except ValidationError as ve:
+        except ValidationError as ve:  # pragma: no cover
             error = ve.error_dict.get("user")
             if error is not None and len(error) == 1 and error[0].code == "multi_account":
                 self.fail("Validation error for multi_account raised.")

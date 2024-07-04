@@ -67,6 +67,16 @@ class Account(AbstractBaseModel):
     def join_account(self, user: User) -> None:
         Player.objects.create(user=user, account=self)
 
+    def change_owner(self, new_owner: User) -> None:
+        if self.owner == new_owner:
+            return
+        if not self.players.filter(user=new_owner).exists():
+            raise ValidationError(
+                {"owner": ValidationError("The new owner is not a player in this account.", code="bad_owner")}
+            )
+        self.owner = new_owner
+        self.save()
+
     def validate_realm_matches(self) -> None:
         """
         Ensure that the Account's GameWorld matches it's realm's GameWorld
