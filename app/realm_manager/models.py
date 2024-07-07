@@ -65,9 +65,30 @@ class Account(AbstractBaseModel):
     players: RelatedManager["Player"]
 
     def join_account(self, user: User) -> None:
+        """Method to have a User join the Account."""
         Player.objects.create(user=user, account=self)
 
+    def leave_account(self, user: User) -> None:
+        """
+        Method to have a User leave the Account.
+
+        If the User is not part of the Account, or if the user is the owner, raises a ValidationError.
+        """
+        if user == self.owner:
+            raise ValidationError(
+                {"owner": ValidationError("The owner of the account cannot be removed.", code="failed_remove_owner")}
+            )
+        player = self.players.filter(user=user).first()
+        if not player:
+            raise ValidationError("The user is not part of this account.", code="not_player")
+        player.delete()
+
     def change_owner(self, new_owner: User) -> None:
+        """
+        Method to change the owner of the Account.
+
+        If the new owner is not part of the Account, raises a ValidationError.
+        """
         if self.owner == new_owner:
             return
         if not self.players.filter(user=new_owner).exists():
@@ -87,11 +108,7 @@ class Account(AbstractBaseModel):
             return
         if self.game_world != self.realm.game_world:
             raise ValidationError(
-                {
-                    "realm": ValidationError(
-                        "This account's game world and the realm's game world mismatch.", code="game_world_mismatch"
-                    )
-                },
+                "This account's game world and the realm's game world mismatch.", code="game_world_mismatch"
             )
 
     def validate_realm_size(self) -> None:
@@ -137,6 +154,8 @@ class Player(AbstractBaseModel):
         Ensure that the user is unique in the GameWorld.
 
         Since Django's unique constraint can't navigate trough multiple models, we validate it on a method.
+
+        Note: this will also create an indirect UniqueTogether constraint on (User, Account).
         """
         if self.account.game_world.accounts.filter(players__user=self.user).exists():
             raise ValidationError(

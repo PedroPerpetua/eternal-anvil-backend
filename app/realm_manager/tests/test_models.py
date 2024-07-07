@@ -68,13 +68,13 @@ class TestAccount(TestCase):
         # Attempt creation
         with self.assertRaises(ValidationError) as ctx:
             sample_account(game_world=game_world_2, realm=realm)
-        self.assertEqual("game_world_mismatch", ctx.exception.error_dict["realm"][0].code)
+        self.assertEqual("game_world_mismatch", ctx.exception.code)
         # Attempt saving
         account = sample_account(game_world=game_world_2)
         account.realm = realm
         with self.assertRaises(ValidationError) as ctx:
             account.save()
-        self.assertEqual("game_world_mismatch", ctx.exception.error_dict["realm"][0].code)
+        self.assertEqual("game_world_mismatch", ctx.exception.code)
 
     def test_realm_limit(self) -> None:
         """Test that an Account can only be added to a Realm if the Realm has space."""
@@ -102,6 +102,29 @@ class TestAccount(TestCase):
         with self.assertRaises(Exception):
             sample_account(id=account_id)
         self.assertFalse(models.Account.objects.filter(id=account_id).exists())
+
+    def test_join(self) -> None:
+        """Test using the `join_account` method."""
+        account = sample_account()
+        user = sample_user()
+        account.join_account(user)
+        account.refresh_from_db()
+        self.assertTrue(account.players.filter(user=user).exists())
+
+    def test_leave(self) -> None:
+        """Test using the `leave_account` method."""
+        account = sample_account()
+        player = sample_player(account=account)
+        account.leave_account(user=player.user)
+        account.refresh_from_db()
+        self.assertFalse(account.players.filter(user=player.user).exists())
+
+    def test_leave_owner_fails(self) -> None:
+        """Test using the `leave_account` method on the owner fails."""
+        account = sample_account()
+        with self.assertRaises(ValidationError) as ctx:
+            account.leave_account(account.owner)
+        self.assertEqual("failed_remove_owner", ctx.exception.error_dict["owner"][0].code)
 
 
 class TestPlayer(TestCase):

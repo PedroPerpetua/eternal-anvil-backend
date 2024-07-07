@@ -1,5 +1,4 @@
 from typing import Any
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 from realm_manager import models
@@ -24,12 +23,6 @@ class ListCreateAccountSerializer(serializers.ModelSerializer[models.Account]):
         model = models.Account
         fields = ("id", "name", "owner", "game_world", "race", "economy")
 
-    def create(self, validated_data: Any) -> models.Account:
-        try:
-            return super().create(validated_data)
-        except DjangoValidationError as dve:
-            raise serializers.ValidationError(serializers.as_serializer_error(dve)) from dve
-
 
 class JoinAccountSerializer(serializers.Serializer):
     id = serializers.UUIDField()
@@ -37,10 +30,7 @@ class JoinAccountSerializer(serializers.Serializer):
     def create(self, validated_data: Any) -> models.Account:
         user = self.context["request"].user
         account = get_object_or_404(models.Account, id=validated_data["id"])
-        try:
-            account.join_account(user)
-        except DjangoValidationError as dve:
-            raise serializers.ValidationError(serializers.as_serializer_error(dve)) from dve
+        account.join_account(user)
         return account
 
 
@@ -51,8 +41,5 @@ class AccountDetailsSerializer(serializers.ModelSerializer[models.Account]):
         read_only_fields = ("id", "name", "game_world", "race", "economy")
 
     def update(self, instance: models.Account, validated_data: Any) -> models.Account:
-        try:
-            instance.change_owner(validated_data["owner"])
-            return instance
-        except DjangoValidationError as dve:
-            raise serializers.ValidationError(serializers.as_serializer_error(dve)) from dve
+        instance.change_owner(validated_data["owner"])
+        return instance

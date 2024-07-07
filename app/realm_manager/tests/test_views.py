@@ -41,7 +41,15 @@ class TestAccountViews(APITestCase):
     JOIN_URL = reverse("realm_manager:accounts:join")
 
     def DETAILS_URL(self, account_id: str | UUID) -> str:
-        return reverse("realm_manager:accounts:details", kwargs={"pk": str(account_id)})
+        return reverse("realm_manager:accounts:details:base", kwargs={"pk": str(account_id)})
+
+    def LEAVE_URL(self, account_id: str | UUID) -> str:
+        return reverse("realm_manager:accounts:details:leave", kwargs={"pk": str(account_id)})
+
+    def REMOVE_USER_URL(self, account_id: str | UUID, user_id: str | UUID) -> str:
+        return reverse(
+            "realm_manager:accounts:details:remove-user", kwargs={"pk": str(account_id), "user_id": str(user_id)}
+        )
 
     def setUp(self) -> None:
         self.user = sample_user()
@@ -296,3 +304,69 @@ class TestAccountViews(APITestCase):
         self.assertResponseStatusCode(status.HTTP_200_OK, res)
         account.refresh_from_db()
         self.assertEqual(self.user, account.owner)
+
+    def test_remove_user(self) -> None:
+        """Test the endpoint to remove Users."""
+        account = sample_account(owner=self.user)
+        player = sample_player(account=account)
+        account.refresh_from_db()
+        original_count = account.players.count()
+        # Make the call
+        res = self.client.delete(self.REMOVE_USER_URL(account.id, player.user.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_204_NO_CONTENT, res)
+        account.refresh_from_db()
+        self.assertEqual(original_count - 1, account.players.count())
+        self.assertFalse(account.players.filter(id=player.id).exists())
+
+    def test_remove_user_not_owner_fails(self) -> None:
+        """Test that only the owner of the Account can remove Users."""
+        account = sample_account()
+        player = sample_player(user=self.user, account=account)
+        account.refresh_from_db()
+        original_count = account.players.count()
+        # Make the call
+        res = self.client.delete(self.REMOVE_USER_URL(account.id, self.user.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_403_FORBIDDEN, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "permission_denied",
+                        "detail": "You must be the account owner to perform this operation.",
+                        "attr": "user",
+                    }
+                ],
+            },
+            res.json(),
+        )
+        account.refresh_from_db()
+        self.assertEqual(original_count, account.players.count())
+        self.assertTrue(account.players.filter(id=player.id).exists())
+
+    def test_remove_owner_fails(self) -> None:
+        """Test that removing the owner of the Account fails."""
+        account = sample_account(owner=self.user)
+        original_count = account.players.count()
+        # Make the call
+        res = self.client.delete(self.REMOVE_USER_URL(account.id, self.user.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_400_BAD_REQUEST, res)
+        account.refresh_from_db()
+        self.assertEqual(original_count, account.players.count())
+        self.assertTrue(account.players.filter(user=self.user).exists())
+        self.assertEqual(
+            {
+                "type": "validation_error",
+                "errors": [
+                    {
+                        "code": "failed_remove_owner",
+                        "detail": "The owner of the account cannot be removed.",
+                        "attr": "owner",
+                    }
+                ],
+            },
+            res.json(),
+        )

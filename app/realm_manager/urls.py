@@ -15,7 +15,23 @@ urlpatterns: URLPatternsList = [
                 [
                     path("", views.ListCreateAccountView.as_view(), name="list-create"),
                     path("join/", views.JoinAccountView.as_view(), name="join"),
-                    path("<uuid:pk>/", views.AccountDetailsView.as_view(), name="details"),
+                    path(
+                        "<uuid:pk>/",
+                        include(
+                            (
+                                [
+                                    path("", views.AccountDetailsView.as_view(), name="base"),
+                                    path("leave/", views.LeaveAccountView.as_view(), name="leave"),
+                                    path(
+                                        "remove/<uuid:user_id>/",
+                                        views.RemoveUserFromAccount.as_view(),
+                                        name="remove-user",
+                                    ),
+                                ],
+                                "details",
+                            )
+                        ),
+                    ),
                 ],
                 "accounts",
             )
