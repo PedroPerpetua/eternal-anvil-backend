@@ -57,6 +57,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "last_login",
             "groups",
             "user_permissions",
+            "discord_id",
         )
 
 
