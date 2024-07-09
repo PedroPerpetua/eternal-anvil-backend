@@ -1,5 +1,10 @@
-from typing import Any
+from typing import Any, cast
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import update_last_login
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
 from users import models
 
 
@@ -53,3 +58,26 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "groups",
             "user_permissions",
         )
+
+
+class DiscordLoginSerializer(serializers.Serializer):
+    """
+    Serializer for Discord OAuth2 logins. Very similar to the
+    `rest_framework_simplejwt.serializers.TokenObtainSerializer`.
+    """
+
+    code = serializers.CharField(max_length=255, write_only=True)
+    # For DRF Spectacular purposes
+    access = serializers.CharField(read_only=True)
+    refresh = serializers.CharField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> Any:
+        code = attrs.get("code")
+        # This should go for our own Discord backend
+        user = authenticate(self.context["request"], discord_code=code)
+        if not user:
+            raise AuthenticationFailed("No active account found with the given credentials", code="no_active_account")
+        token = cast(RefreshToken, RefreshToken.for_user(user))
+        if api_settings.UPDATE_LAST_LOGIN:
+            update_last_login(None, user)  # type: ignore[arg-type] # sender can be None
+        return {"refresh": str(token), "access": str(token.access_token)}

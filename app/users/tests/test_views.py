@@ -1,9 +1,11 @@
+from unittest.mock import patch
+from django.conf import settings
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from extensions.utilities import uuid
-from extensions.utilities.test import APITestCase
+from extensions.utilities.test import APITestCase, MockResponse
 from users import serializers
 from users.models import User
 from users.tests import VALID_PASSWORD, sample_user
@@ -336,3 +338,288 @@ class TestUserChangePasswordView(APITestCase):
                 self.user.refresh_from_db()
                 self.assertFalse(self.user.check_password(new_password))
                 self.assertTrue(self.user.check_password(self.password))
+
+
+class TestDiscordLoginView(APITestCase):
+    URL = reverse("users:login-discord")
+
+    def setUp(self) -> None:
+        self.get_patcher = patch("users.authentication.requests.get")
+        self.get_mock = self.get_patcher.start()
+        self.post_patcher = patch("users.authentication.requests.post")
+        self.post_mock = self.post_patcher.start()
+
+    def tearDown(self) -> None:
+        self.get_patcher.stop()
+        self.post_patcher.stop()
+
+    def test_success(self) -> None:
+        """Test successfully logging in with Discord."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_id = uuid()
+        discord_username = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"id": discord_id, "username": discord_username})
+        # Create a User to log in as
+        user = sample_user(username=discord_username, discord_id=discord_id)
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        data: dict[str, str] = res.json()
+        access_token = data.get("access")
+        self.assertIsNotNone(access_token)
+        refresh_token = data.get("refresh")
+        self.assertIsNotNone(refresh_token)
+        # Verify that the received tokens are for the correct User
+        whoami_res = self.client.get(reverse("users:whoami"), HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertResponseStatusCode(status.HTTP_200_OK, whoami_res)
+        self.assertEqual({"username": user.get_username()}, whoami_res.json())
+        # Verify that the mocks were called correctly
+        self.get_mock.assert_called_once_with(
+            "https://discordapp.com/api/users/@me", headers={"Authorization": f"Bearer {discord_access_token}"}
+        )
+        self.post_mock.assert_called_once_with(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": discord_code,
+                "redirect_uri": settings.DISCORD_REDIRECT_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            auth=(settings.DISCORD_CLIENT_ID, settings.DISCORD_CLIENT_SECRET),
+        )
+
+    def test_success_create(self) -> None:
+        """Test successfully logging in with Discord for the first time."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_id = uuid()
+        discord_username = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"id": discord_id, "username": discord_username})
+        # Original count
+        original_count = User.objects.count()
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        data: dict[str, str] = res.json()
+        access_token = data.get("access")
+        self.assertIsNotNone(access_token)
+        refresh_token = data.get("refresh")
+        self.assertIsNotNone(refresh_token)
+        # Verify there's a new User
+        self.assertEqual(original_count + 1, User.objects.count())
+        new_user: User = User.objects.get(discord_id=discord_id)
+        self.assertEqual(discord_username, new_user.get_username())
+        self.assertFalse(new_user.has_usable_password())
+        # Verify that the received tokens are for the created User
+        whoami_res = self.client.get(reverse("users:whoami"), HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertResponseStatusCode(status.HTTP_200_OK, whoami_res)
+        self.assertEqual({"username": new_user.get_username()}, whoami_res.json())
+        # Verify that the mocks were called correctly
+        self.get_mock.assert_called_once_with(
+            "https://discordapp.com/api/users/@me", headers={"Authorization": f"Bearer {discord_access_token}"}
+        )
+        self.post_mock.assert_called_once_with(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": discord_code,
+                "redirect_uri": settings.DISCORD_REDIRECT_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            auth=(settings.DISCORD_CLIENT_ID, settings.DISCORD_CLIENT_SECRET),
+        )
+
+    def test_success_create_existing_username(self) -> None:
+        """Test creating a new User when the Discord username already exists."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_id = uuid()
+        discord_username = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"id": discord_id, "username": discord_username})
+        # It's expected that the username will cycle trough adding "_1", "_2", etc... so let's create a couple
+        sample_user(username=discord_username)
+        sample_user(username=f"{discord_username}_1")
+        sample_user(username=f"{discord_username}_2")
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        # Verify the new User's username
+        new_user: User = User.objects.get(discord_id=discord_id)
+        self.assertEqual(f"{discord_username}_3", new_user.get_username())
+        # Verify that the mocks were called correctly
+        self.get_mock.assert_called_once_with(
+            "https://discordapp.com/api/users/@me", headers={"Authorization": f"Bearer {discord_access_token}"}
+        )
+        self.post_mock.assert_called_once_with(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": discord_code,
+                "redirect_uri": settings.DISCORD_REDIRECT_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            auth=(settings.DISCORD_CLIENT_ID, settings.DISCORD_CLIENT_SECRET),
+        )
+
+    def test_inactive_user_fails(self) -> None:
+        """Test that if the user is inactive in our server, the login fails."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_id = uuid()
+        discord_username = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"id": discord_id, "username": discord_username})
+        # Create an inactive User to log in as
+        sample_user(username=discord_username, discord_id=discord_id, is_active=False)
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_401_UNAUTHORIZED, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "no_active_account",
+                        "detail": "No active account found with the given credentials",
+                        "attr": None,
+                    }
+                ],
+            },
+            res.json(),
+        )
+        # Verify that the mocks were called correctly
+        self.get_mock.assert_called_once_with(
+            "https://discordapp.com/api/users/@me", headers={"Authorization": f"Bearer {discord_access_token}"}
+        )
+        self.post_mock.assert_called_once_with(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": discord_code,
+                "redirect_uri": settings.DISCORD_REDIRECT_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            auth=(settings.DISCORD_CLIENT_ID, settings.DISCORD_CLIENT_SECRET),
+        )
+
+    def test_no_exchange_token_fails(self) -> None:
+        """Test that if the Discord API call to exchange the token fails, the login fails."""
+        # Set up the mocks
+        self.post_mock.return_value = MockResponse(status.HTTP_400_BAD_REQUEST)
+        # Make the call
+        code = "_code"
+        res = self.client.post(self.URL, data={"code": code})
+        self.assertResponseStatusCode(status.HTTP_401_UNAUTHORIZED, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "no_active_account",
+                        "detail": "No active account found with the given credentials",
+                        "attr": None,
+                    }
+                ],
+            },
+            res.json(),
+        )
+        # Verify that the mocks were called correctly
+        self.post_mock.assert_called_once_with(
+            "https://discord.com/api/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": settings.DISCORD_REDIRECT_URL,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            auth=(settings.DISCORD_CLIENT_ID, settings.DISCORD_CLIENT_SECRET),
+        )
+
+    def test_no_discord_data_fails(self) -> None:
+        """Test that if the Discord API call to get the user data fails, the login fails."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_400_BAD_REQUEST)
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_401_UNAUTHORIZED, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "no_active_account",
+                        "detail": "No active account found with the given credentials",
+                        "attr": None,
+                    }
+                ],
+            },
+            res.json(),
+        )
+
+    def test_no_discord_id_fails(self) -> None:
+        """Test that if the Discord API call to get the user data doesn't return an id, the login fails."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_username = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"username": discord_username})
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_401_UNAUTHORIZED, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "no_active_account",
+                        "detail": "No active account found with the given credentials",
+                        "attr": None,
+                    }
+                ],
+            },
+            res.json(),
+        )
+
+    def test_no_discord_username_fails(self) -> None:
+        """Test that if the Discord API call to get the user data doesn't return an id, the login fails."""
+        # Set up the mocks
+        discord_access_token = "_discord_access_token"
+        self.post_mock.return_value = MockResponse(status.HTTP_200_OK, {"access_token": discord_access_token})
+        discord_id = uuid()
+        discord_code = uuid()
+        self.get_mock.return_value = MockResponse(status.HTTP_200_OK, {"id": discord_id})
+        # Make the call
+        res = self.client.post(self.URL, data={"code": discord_code})
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_401_UNAUTHORIZED, res)
+        self.assertEqual(
+            {
+                "type": "client_error",
+                "errors": [
+                    {
+                        "code": "no_active_account",
+                        "detail": "No active account found with the given credentials",
+                        "attr": None,
+                    }
+                ],
+            },
+            res.json(),
+        )

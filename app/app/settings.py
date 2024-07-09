@@ -203,6 +203,13 @@ SPECTACULAR_SETTINGS = {
 }
 
 
+# Discord OAuth settings
+
+DISCORD_REDIRECT_URL = env.as_string("DISCORD_REDIRECT_URL")
+DISCORD_CLIENT_ID = env.as_string("DISCORD_CLIENT_ID")
+DISCORD_CLIENT_SECRET = env.as_string("DISCORD_CLIENT_SECRET")
+
+
 # User Management
 
 AUTH_USER_MODEL = "users.User"
@@ -220,7 +227,10 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
-AUTHENTICATION_BACKENDS = ["users.authentication.AuthenticationBackend"]
+AUTHENTICATION_BACKENDS = [
+    "users.authentication.AuthenticationBackend",
+    "users.authentication.DiscordAuthenticationBackend",
+]
 AUTH_USER_REGISTRATION_ENABLED = env.as_bool("AUTH_USER_REGISTRATION_ENABLED", False)
 
 

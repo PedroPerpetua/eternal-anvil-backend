@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from realm_manager import models, serializers
 from users.models import User
 from users.view_mixins import AuthenticatedUserMixin
@@ -128,8 +128,12 @@ class AccountDetailsView(TargetAccountMixin, generics.RetrieveUpdateDestroyAPIVi
 
 
 @extend_schema(tags=["Realm Manager - Accounts"])
+@extend_schema_view(delete=extend_schema(responses=None))
 class LeaveAccountView(TargetAccountMixin, generics.DestroyAPIView):
     """Endpoint to leave the Account."""
+
+    # https://github.com/tfranzel/drf-spectacular/issues/308
+    queryset = models.Account.objects.none()
 
     def destroy(self, *args: Any, **kwargs: Any) -> Response:
         account: models.Account = self.get_object()
@@ -139,8 +143,12 @@ class LeaveAccountView(TargetAccountMixin, generics.DestroyAPIView):
 
 @extend_schema(tags=["Realm Manager - Accounts"])
 @extend_schema(responses={403: must_be_owner_response})
+@extend_schema_view(delete=extend_schema(responses=None))
 class RemoveUserFromAccount(TargetAccountMixin, generics.DestroyAPIView):
     """Endpoint to remove a User from the Account. Only the owner can use this endpoint."""
+
+    # https://github.com/tfranzel/drf-spectacular/issues/308
+    queryset = models.Account.objects.none()
 
     def destroy(self, *args: Any, user_id: Optional[UUID], **kwargs: Any) -> Response:
         self.validate_owner()

@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework_simplejwt import views as jwt_views
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from users import serializers
 from users.view_mixins import TargetAuthenticatedUserMixin
 
@@ -153,3 +154,19 @@ class UserChangePasswordView(TargetAuthenticatedUserMixin, generics.UpdateAPIVie
         user.set_password(new_password)
         user.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=["User Authentication"])
+class DiscordLogin(generics.GenericAPIView):
+    """View for Discord OAuth2. Logs the user in using the OAuth code provided by Discord login."""
+
+    serializer_class = serializers.DiscordLoginSerializer
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # This is very similar to the `rest_framework_simplejwt.views.TokenViewBase`
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
