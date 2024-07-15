@@ -126,6 +126,14 @@ class TestAccount(TestCase):
             account.leave_account(account.owner)
         self.assertEqual("failed_remove_owner", ctx.exception.error_dict["owner"][0].code)
 
+    def test_leave_not_player_fails(self) -> None:
+        """Test using the `leave_account` method on a user that's not the owner fails."""
+        account = sample_account()
+        user = sample_user()
+        with self.assertRaises(ValidationError) as ctx:
+            account.leave_account(user)
+        self.assertEqual("not_player", ctx.exception.code)
+
 
 class TestPlayer(TestCase):
     """Test the Player model."""

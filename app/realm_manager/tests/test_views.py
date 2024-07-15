@@ -305,6 +305,52 @@ class TestAccountViews(APITestCase):
         account.refresh_from_db()
         self.assertEqual(self.user, account.owner)
 
+    def test_leave_account(self) -> None:
+        """Test the endpoint to leave the Account."""
+        account = sample_account()
+        sample_player(user=self.user, account=account)
+        account.refresh_from_db()
+        original_count = account.players.count()
+        # Make the call
+        res = self.client.delete(self.LEAVE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_204_NO_CONTENT, res)
+        account.refresh_from_db()
+        self.assertEqual(original_count - 1, account.players.count())
+        self.assertFalse(account.players.filter(user=self.user).exists())
+
+    def test_leave_owner_fails(self) -> None:
+        """Test that the owner cannot leave the account."""
+        account = sample_account(owner=self.user)
+        original_count = account.players.count()
+        # Make the call
+        res = self.client.delete(self.LEAVE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_400_BAD_REQUEST, res)
+        self.assertEqual(
+            {
+                "type": "validation_error",
+                "errors": [
+                    {
+                        "code": "failed_remove_owner",
+                        "detail": "The owner of the account cannot be removed.",
+                        "attr": "owner",
+                    }
+                ],
+            },
+            res.json(),
+        )
+        account.refresh_from_db()
+        self.assertEqual(original_count, account.players.count())
+
+    def test_leave_user_not_in_account_fails(self) -> None:
+        """Test that a user not in the account cannot leave it."""
+        account = sample_account()
+        # Make the call
+        res = self.client.delete(self.LEAVE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_404_NOT_FOUND, res)
+
     def test_remove_user(self) -> None:
         """Test the endpoint to remove Users."""
         account = sample_account(owner=self.user)
@@ -317,7 +363,7 @@ class TestAccountViews(APITestCase):
         self.assertResponseStatusCode(status.HTTP_204_NO_CONTENT, res)
         account.refresh_from_db()
         self.assertEqual(original_count - 1, account.players.count())
-        self.assertFalse(account.players.filter(id=player.id).exists())
+        self.assertFalse(account.players.filter(user=player.user).exists())
 
     def test_remove_user_not_owner_fails(self) -> None:
         """Test that only the owner of the Account can remove Users."""
