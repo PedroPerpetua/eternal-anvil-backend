@@ -44,21 +44,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.User
-        # Because more fields can be included in the user, instead exclude all that we know we don't want
-        exclude = (
-            "id",
-            "created_at",
-            "updated_at",
-            "is_deleted",
-            "is_staff",
-            "is_active",
-            "is_superuser",
-            "password",
-            "last_login",
-            "groups",
-            "user_permissions",
-            "discord_id",
-        )
+        fields = ("id", "username")
 
 
 class DiscordLoginSerializer(serializers.Serializer):
