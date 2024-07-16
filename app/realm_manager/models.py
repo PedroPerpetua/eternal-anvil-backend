@@ -64,6 +64,11 @@ class Account(AbstractBaseModel):
     # Related managers
     players: RelatedManager["Player"]
 
+    @property
+    def users(self) -> models.query.QuerySet[User]:
+        """Get the list of users in this account's players."""
+        return User.objects.filter(player_accounts__account=self)
+
     def join_account(self, user: User) -> None:
         """Method to have a User join the Account."""
         Player.objects.create(user=user, account=self)

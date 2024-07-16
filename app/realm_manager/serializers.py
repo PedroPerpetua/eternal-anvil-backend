@@ -1,7 +1,10 @@
-from typing import Any
+from typing import Any, Literal
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
+from drf_spectacular.openapi import AutoSchema, OpenApiSerializerExtension
+from extensions.serializers import NestedPrimaryKeyRelatedField
 from realm_manager import models
+from users.models import User
 
 
 # GameWorlds -----------------------------------------------------------------
@@ -14,14 +17,40 @@ class ListGameWorld(serializers.ModelSerializer[models.GameWorld]):
 
 
 # Accounts -------------------------------------------------------------------
+class GameWorldSerializer(serializers.ModelSerializer[models.GameWorld]):
+    class Meta:
+        model = models.GameWorld
+        fields = ("id", "name", "code")
+
+
+class UserSerializer(serializers.ModelSerializer[models.User]):
+    class Meta:
+        model = User
+        fields = ("id", "username")
 
 
 class ListCreateAccountSerializer(serializers.ModelSerializer[models.Account]):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    game_world = NestedPrimaryKeyRelatedField(GameWorldSerializer)
+    players = UserSerializer(many=True, read_only=True, source="users")
 
     class Meta:
         model = models.Account
-        fields = ("id", "name", "owner", "game_world", "race", "economy")
+        fields = ("id", "name", "owner", "game_world", "race", "economy", "players")
+
+
+class AccountDetailsSerializer(serializers.ModelSerializer[models.Account]):
+    game_world = GameWorldSerializer(read_only=True)
+    players = UserSerializer(many=True, read_only=True, source="users")
+
+    class Meta:
+        model = models.Account
+        fields = ("id", "name", "owner", "game_world", "race", "economy", "players")
+        read_only_fields = ("name", "race", "economy")
+
+    def update(self, instance: models.Account, validated_data: Any) -> models.Account:
+        instance.change_owner(validated_data["owner"])
+        return instance
 
 
 class JoinAccountSerializer(serializers.Serializer):
@@ -33,13 +62,23 @@ class JoinAccountSerializer(serializers.Serializer):
         account.join_account(user)
         return account
 
+    def to_representation(self, instance: models.Account) -> dict[str, Any]:
+        """We want to return the actual account when we successfully join and return this serializer's data."""
+        return AccountDetailsSerializer(instance).data
 
-class AccountDetailsSerializer(serializers.ModelSerializer[models.Account]):
-    class Meta:
-        model = models.Account
-        fields = ("id", "name", "owner", "game_world", "race", "economy")
-        read_only_fields = ("id", "name", "game_world", "race", "economy")
 
-    def update(self, instance: models.Account, validated_data: Any) -> models.Account:
-        instance.change_owner(validated_data["owner"])
-        return instance
+class JoinAccountSerializerExtension(OpenApiSerializerExtension):
+    """OpenAPI Extension for DRF Spectacular so that it knows how the JoinAccountSerializer above behaves."""
+
+    target_class = JoinAccountSerializer
+
+    def map_serializer(
+        self, auto_schema: AutoSchema, direction: Literal["request", "response"]
+    ) -> dict[str, Any]:  # pragma: no cover
+        if direction == "response":
+            # In the response, we return the serialized account; let DRF Spectacular know that
+            component = auto_schema.resolve_serializer(AccountDetailsSerializer, direction)
+            return component.ref
+        # Return the default value for the request (regular serialization)
+        default: dict[str, Any] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        return default
