@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 from drf_spectacular.openapi import AutoSchema, OpenApiSerializerExtension
@@ -11,9 +11,18 @@ from users.models import User
 
 
 class ListGameWorld(serializers.ModelSerializer[models.GameWorld]):
+    account_name = serializers.SerializerMethodField()
+
     class Meta:
         model = models.GameWorld
-        fields = ("id", "name", "code", "start", "end")
+        fields = ("id", "name", "code", "start", "end", "account_name")
+
+    def get_account_name(self, instance: models.GameWorld) -> Optional[str]:
+        user: User = self.context["request"].user
+        account = instance.accounts.filter(players__user=user).first()
+        if not account:
+            return None
+        return account.name
 
 
 # Accounts -------------------------------------------------------------------
@@ -29,14 +38,22 @@ class UserSerializer(serializers.ModelSerializer[models.User]):
         fields = ("id", "username")
 
 
+class RealmSerializer(serializers.ModelSerializer[models.Realm]):
+
+    class Meta:
+        model = models.Realm
+        fields = ("id", "name")
+
+
 class ListCreateAccountSerializer(serializers.ModelSerializer[models.Account]):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
     game_world = NestedPrimaryKeyRelatedField(GameWorldSerializer)
+    realm = RealmSerializer(read_only=True, allow_null=True)
     players = UserSerializer(many=True, read_only=True, source="users")
 
     class Meta:
         model = models.Account
-        fields = ("id", "name", "owner", "game_world", "race", "economy", "players")
+        fields = ("id", "name", "owner", "game_world", "realm", "race", "economy", "players")
 
 
 class AccountDetailsSerializer(serializers.ModelSerializer[models.Account]):

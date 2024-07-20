@@ -188,6 +188,9 @@ class DiscordLogin(generics.GenericAPIView):
 
     serializer_class = serializers.DiscordLoginSerializer
 
+    @extend_schema(operation_id="users_discord_login")
+    @extend_schema(summary="Login with Discord")
+    @extend_schema(description="Login with Discord OAUTH2 flow.")
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # This is very similar to the `rest_framework_simplejwt.views.TokenViewBase`
         serializer = self.get_serializer(data=request.data)

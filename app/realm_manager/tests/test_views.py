@@ -1,5 +1,6 @@
 from typing import cast
 from uuid import UUID
+from django.test import RequestFactory
 from django.urls import reverse
 from rest_framework import status
 from extensions.utilities import jsonify, uuid
@@ -24,8 +25,27 @@ class TestGameWorldViews(APITestCase):
         res = self.client.get(self.LIST_URL)
         # Verify the response
         self.assertResponseStatusCode(status.HTTP_200_OK, res)
-        serialized_data = cast(list, jsonify(serializers.ListGameWorld(game_worlds, many=True).data))
+        # Set up a "fake" request to set the user
+        request = RequestFactory().get(self.LIST_URL)
+        request.user = self.user
+        serialized_data = cast(
+            list, jsonify(serializers.ListGameWorld(game_worlds, many=True, context={"request": request}).data)
+        )
         self.assertCountEqual(serialized_data, res.json())
+
+    def test_get_returns_account_name(self) -> None:
+        """Test that the account name is correctly returned."""
+        sample_game_world()  # Game world without account
+        game_world_with_account = sample_game_world()
+        account = sample_account(owner=self.user, game_world=game_world_with_account)
+        # Make the call
+        res = self.client.get(self.LIST_URL)
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        res_data = res.json()
+        self.assertEqual(2, len(res.json()))
+        names = [game_world_data["account_name"] for game_world_data in res_data]
+        self.assertCountEqual([account.name, None], names)
 
     def test_get_auth(self) -> None:
         """Test that the GameWorld list endpoint is auth protected."""

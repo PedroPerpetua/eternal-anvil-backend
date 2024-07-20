@@ -24,19 +24,7 @@ class ListGameWorldView(AuthenticatedUserMixin, generics.ListAPIView):
 
 # Accounts -------------------------------------------------------------------
 
-
-@extend_schema(tags=["Realm Manager - Accounts"])
-@extend_schema_view(
-    get=extend_schema(summary="Get account list", description="Endpoint to list Accounts."),
-    post=extend_schema(summary="Create account", description="Endpoint to create Accounts."),
-)
-class ListCreateAccountView(AuthenticatedUserMixin, generics.ListCreateAPIView[models.Account]):
-    serializer_class = serializers.ListCreateAccountSerializer
-
-    def get_queryset(self) -> QuerySet[models.Account]:
-        return models.Account.objects.filter(players__user=self.request.user)
-
-
+# Common OpenAPI errors
 must_be_owner_response = OpenApiResponse(
     response={
         "type": "object",
@@ -59,6 +47,48 @@ must_be_owner_response = OpenApiResponse(
     },
     description="Not Owner",
 )
+
+multi_account_response = OpenApiResponse(
+    response={
+        "type": "object",
+        "properties": {
+            "type": {"enum": ["validation_error"]},
+            "errors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"enum": ["multi_account"]},
+                        "detail": {"enum": ["User is already present in this game world."]},
+                        "attr": {"enum": ["user"]},
+                    },
+                    "required": ["code", "detail", "attr"],
+                },
+            },
+        },
+        "required": ["type", "errors"],
+    },
+    description="Multi Account",
+)
+
+
+@extend_schema(tags=["Realm Manager - Accounts"])
+@extend_schema_view(
+    get=extend_schema(summary="Get account list", description="Endpoint to list Accounts."),
+    post=extend_schema(
+        summary="Create account",
+        description="Endpoint to create Accounts.",
+        responses={
+            201: serializers.ListCreateAccountSerializer,
+            403: multi_account_response,
+        },
+    ),
+)
+class ListCreateAccountView(AuthenticatedUserMixin, generics.ListCreateAPIView[models.Account]):
+    serializer_class = serializers.ListCreateAccountSerializer
+
+    def get_queryset(self) -> QuerySet[models.Account]:
+        return models.Account.objects.filter(players__user=self.request.user)
 
 
 class TargetAccountMixin(AuthenticatedUserMixin):
@@ -109,29 +139,7 @@ class AccountDetailsView(TargetAccountMixin, generics.RetrieveUpdateDestroyAPIVi
         summary="Join account",
         responses={
             200: serializers.JoinAccountSerializer,
-            # Multi account
-            403: OpenApiResponse(
-                response={
-                    "type": "object",
-                    "properties": {
-                        "type": {"enum": ["validation_error"]},
-                        "errors": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "code": {"enum": ["multi_account"]},
-                                    "detail": {"enum": ["User is already present in this game world."]},
-                                    "attr": {"enum": ["user"]},
-                                },
-                                "required": ["code", "detail", "attr"],
-                            },
-                        },
-                    },
-                    "required": ["type", "errors"],
-                },
-                description="Multi Account",
-            ),
+            403: multi_account_response,
         },
     )
 )
