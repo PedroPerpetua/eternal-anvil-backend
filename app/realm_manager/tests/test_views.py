@@ -6,7 +6,7 @@ from rest_framework import status
 from extensions.utilities import jsonify, uuid
 from extensions.utilities.test import APITestCase
 from realm_manager import models, serializers
-from realm_manager.tests import sample_account, sample_game_world, sample_player
+from realm_manager.tests import sample_account, sample_game_world, sample_player, sample_schedule
 from users.tests import sample_user
 
 
@@ -70,6 +70,9 @@ class TestAccountViews(APITestCase):
         return reverse(
             "realm_manager:accounts:details:remove-user", kwargs={"pk": str(account_id), "user_id": str(user_id)}
         )
+
+    def SCHEDULE_URL(self, account_id: str | UUID) -> str:
+        return reverse("realm_manager:accounts:details:schedule", kwargs={"pk": str(account_id)})
 
     def setUp(self) -> None:
         self.user = sample_user()
@@ -436,3 +439,54 @@ class TestAccountViews(APITestCase):
             },
             res.json(),
         )
+
+    def test_get_schedule(self) -> None:
+        """Test retrieving an Account's Schedule successfully."""
+        account = sample_account(owner=self.user)
+        schedule = sample_schedule(player=account.players.get(user=self.user), monday=[1, 2, 5], friday=[2, 5, 10])
+        # Make the call
+        res = self.client.get(self.SCHEDULE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        self.assertEqual(serializers.ScheduleSerializer(schedule).data, res.json())
+
+    def test_get_schedule_creates(self) -> None:
+        """Test retrieving an Account's Schedule that doesn't exist retrieves a new one."""
+        original_count = models.Schedule.objects.count()
+        account = sample_account(owner=self.user)
+        # Make the call
+        res = self.client.get(self.SCHEDULE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        # Verify that one was created
+        self.assertEqual(original_count + 1, models.Schedule.objects.count())
+        # Verify that it has the default values
+        self.assertEqual(serializers.ScheduleSerializer(sample_schedule()).data, res.json())
+
+    def test_get_schedule_no_account_fails(self) -> None:
+        """Test retrieving the schedule of an account you're not a player of fails."""
+        account = sample_account()
+        # Make the call
+        res = self.client.get(self.SCHEDULE_URL(account.id))
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_404_NOT_FOUND, res)
+
+    def test_update_schedule(self) -> None:
+        """Test successfully updating the Schedule."""
+        account = sample_account(owner=self.user)
+        schedule = sample_schedule(player=account.players.get(user=self.user))
+        payload = {
+            "monday": [10, 20, 30],
+            "tuesday": [20, 30, 40],
+            "wednesday": [10, 30],
+            "thursday": [0, 30],
+            "friday": [0, 15, 30],
+            "saturday": [0],
+            "sunday": [],
+        }
+        # Make the call
+        res = self.client.put(self.SCHEDULE_URL(account.id), data=payload)
+        # Verify the response
+        self.assertResponseStatusCode(status.HTTP_200_OK, res)
+        schedule.refresh_from_db()
+        self.assertEqual(serializers.ScheduleSerializer(schedule).data, payload)

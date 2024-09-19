@@ -6,6 +6,7 @@ from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_standardized_errors.openapi_serializers import ErrorResponse404Serializer
 from realm_manager import models, serializers
 from users.models import User
 from users.view_mixins import AuthenticatedUserMixin
@@ -85,6 +86,8 @@ multi_account_response = OpenApiResponse(
     ),
 )
 class ListCreateAccountView(AuthenticatedUserMixin, generics.ListCreateAPIView[models.Account]):
+    """Endpoint to list and create Accounts."""
+
     serializer_class = serializers.ListCreateAccountSerializer
 
     def get_queryset(self) -> QuerySet[models.Account]:
@@ -119,6 +122,8 @@ class TargetAccountMixin(AuthenticatedUserMixin):
     ),
 )
 class AccountDetailsView(TargetAccountMixin, generics.RetrieveUpdateDestroyAPIView):
+    """Endpoint to manage a User's Account."""
+
     serializer_class = serializers.AccountDetailsSerializer
     # We don't want patch here
     http_method_names = ["get", "put", "delete"]
@@ -140,6 +145,7 @@ class AccountDetailsView(TargetAccountMixin, generics.RetrieveUpdateDestroyAPIVi
         responses={
             200: serializers.JoinAccountSerializer,
             403: multi_account_response,
+            404: ErrorResponse404Serializer,
         },
     )
 )
@@ -204,7 +210,7 @@ class LeaveAccountView(TargetAccountMixin, generics.DestroyAPIView):
         },
     )
 )
-class RemoveUserFromAccount(TargetAccountMixin, generics.DestroyAPIView):
+class RemoveUserFromAccountView(TargetAccountMixin, generics.DestroyAPIView):
     """Endpoint to remove a User from the Account. Only the owner can use this endpoint."""
 
     # https://github.com/tfranzel/drf-spectacular/issues/308
@@ -216,3 +222,35 @@ class RemoveUserFromAccount(TargetAccountMixin, generics.DestroyAPIView):
         user = get_object_or_404(User, id=user_id)
         account.leave_account(user)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=["Realm Manager - Accounts"])
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve player schedule",
+        description="Endpoint to retrieve a Player's own schedule.\n\nIf a schedule doesn't exist, this will create a default (empty) one.",
+    ),
+    put=extend_schema(
+        summary="Update player schedule",
+        description="Endpoint to update a Player's own schedule.\n\nIf a schedule doesn't exist, this will create a default (empty) one.",
+    ),
+    patch=extend_schema(
+        summary="Partially update player schedule",
+        description="Endpoint to partially update a Player's own schedule.\n\nIf a schedule doesn't exist, this will create a default (empty) one.",
+    ),
+)
+class ScheduleDetailsView(generics.RetrieveUpdateAPIView):
+    """
+    Endpoint to manage a Player's Schedule.
+
+    Uses of this endpoint will create the appropriate schedule for the user if he should have one and doesn't (a new
+    empty schedule).
+    """
+
+    serializer_class = serializers.ScheduleSerializer
+
+    def get_object(self) -> models.Schedule:
+        account: models.Account = get_object_or_404(models.Account.objects, id=self.kwargs["pk"])
+        player = get_object_or_404(account.players, user=self.request.user)
+        schedule, _ = models.Schedule.objects.get_or_create(player=player)
+        return schedule

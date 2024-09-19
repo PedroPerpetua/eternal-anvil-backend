@@ -24,9 +24,10 @@ urlpatterns: URLPatternsList = [
                                     path("leave/", views.LeaveAccountView.as_view(), name="leave"),
                                     path(
                                         "remove/<uuid:user_id>/",
-                                        views.RemoveUserFromAccount.as_view(),
+                                        views.RemoveUserFromAccountView.as_view(),
                                         name="remove-user",
                                     ),
+                                    path("schedule/", views.ScheduleDetailsView.as_view(), name="schedule"),
                                 ],
                                 "details",
                             )

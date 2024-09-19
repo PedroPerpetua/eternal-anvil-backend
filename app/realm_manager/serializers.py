@@ -99,3 +99,10 @@ class JoinAccountSerializerExtension(OpenApiSerializerExtension):
         # Return the default value for the request (regular serialization)
         default: dict[str, Any] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
         return default
+
+
+class ScheduleSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = models.Schedule
+        fields = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
